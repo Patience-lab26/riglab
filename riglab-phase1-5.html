@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RigLab – Phase 1 bone editor</title>
+<style>
+:root{--bg:#e6e9ee;--panel:#f7f8fa;--ink:#1b2430;--mute:#66707e;--line:#cfd5de;--acc:#d6246e;--bone:#0f7b8a;--chk1:#fff;--chk2:#e3e7ed;--btn:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#12161c;--panel:#1a2029;--ink:#e6ebf2;--mute:#8d98a8;--line:#2c3542;--acc:#ff5c9a;--bone:#3cc3d4;--chk1:#222a35;--chk2:#1b222c;--btn:#232b37}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#12161c;--panel:#1a2029;--ink:#e6ebf2;--mute:#8d98a8;--line:#2c3542;--acc:#ff5c9a;--bone:#3cc3d4;--chk1:#222a35;--chk2:#1b222c;--btn:#232b37}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:15px;margin:0 8px 0 0;font-weight:700;letter-spacing:.2px}
+.sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+button,.btn{font:inherit;color:var(--ink);background:var(--btn);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover,.btn:hover{border-color:var(--mute)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+main{flex:1;min-height:0;display:grid;grid-template-columns:210px 1fr 270px}
+aside{background:var(--panel);overflow:auto;padding:10px;min-height:0}
+#left{border-right:1px solid var(--line)}#right{border-left:1px solid var(--line)}
+aside h2{font-size:13px;margin:0 0 8px;font-weight:700}
+.mute{color:var(--mute);font-size:12.5px}
+#stage{position:relative;min-width:0;background:conic-gradient(var(--chk1) 25%,var(--chk2) 0 50%,var(--chk1) 0 75%,var(--chk2) 0) 0 0/24px 24px}
+#cv{position:absolute;inset:0;touch-action:none;cursor:crosshair}
+#stage.drop::after{content:"Drop image to import";position:absolute;inset:12px;border:2px dashed var(--acc);border-radius:10px;display:grid;place-items:center;font-weight:600;color:var(--acc);background:#fff6;pointer-events:none}
+#hint{position:absolute;left:10px;bottom:8px;right:10px;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;width:fit-content;max-width:calc(100% - 20px);pointer-events:none}
+.node{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.node:hover{background:var(--chk2)}.node.sel{background:var(--acc);color:#fff}
+.node i{width:8px;height:8px;border-radius:50%;background:var(--bone);flex:none}.node.sel i{background:#fff}
+label{display:block;margin:0 0 9px;font-size:12.5px;color:var(--mute)}
+label.row{display:flex;gap:6px;align-items:center}
+input[type=text],input[type=number],select,textarea{display:block;width:100%;margin-top:3px;font:inherit;color:var(--ink);background:var(--btn);border:1px solid var(--line);border-radius:6px;padding:5px 7px}
+textarea{height:110px;font:11.5px/1.3 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+.actions{display:flex;gap:6px;margin:6px 0}
+hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+@media (max-width:820px){main{grid-template-columns:1fr;grid-template-rows:150px minmax(260px,1fr) 190px}#left{border-right:0;border-bottom:1px solid var(--line)}#right{border-left:0;border-top:1px solid var(--line)}body{overflow:auto}}
+.dlg{position:fixed;inset:0;background:#0007;display:none;place-items:center;z-index:50}.dlg.on{display:grid}.dlg>div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(580px,94vw);max-height:92vh;overflow:auto}.g2{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+</style></head>
+<body>
+<header>
+<h1>RigLab</h1>
+<label class="btn" style="margin:0;color:var(--ink)">Import image<input id="file" type="file" accept="image/png,image/jpeg,image/webp" hidden></label>
+<button id="sample">Load sample character</button>
+<label style="margin:0;display:flex;align-items:center;gap:6px" title="After importing, find the body, build the rig and attach the picture automatically"><input type="checkbox" id="autorig" checked> Auto-rig on import</label>
+<button id="rmbg" title="Make a plain background transparent">Remove background</button>
+<span class="sep"></span>
+<button data-tool="select" title="Select and move (V)">Select</button>
+<button data-tool="add" title="Add bone: drag from a joint (B)">Add bone</button>
+<button data-tool="pan" title="Pan (H or hold Space)">Pan</button>
+<button id="del" title="Delete selected bone (X)">Delete bone</button>
+<span class="sep"></span>
+<button id="det" title="Find body points automatically">1 Detect landmarks</button>
+<button data-tool="lm" title="Drag yellow dots to fix them">2 Edit landmarks</button>
+<button id="gen" title="Build bones from the landmarks">3 Generate bones</button>
+<button id="bnd" title="Attach the artwork to the bones">4 Bind artwork</button>
+<button data-tool="pose" title="Drag bones to swing them">5 Pose</button>
+<button id="rst">Reset pose</button><button id="tst">Test movement</button>
+<label style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showLm" checked> Landmarks</label>
+<label style="margin:0;display:flex;align-items:center;gap:6px" title="Hide every bone, joint, landmark and guide so only the character shows"><input type="checkbox" id="showRig" checked> Show rig</label>
+<span class="sep"></span>
+<button id="undo">Undo</button><button id="redo">Redo</button><button id="fit">Fit view</button>
+<span class="sep"></span>
+<select id="bgmode" title="Editor background" style="width:auto;margin:0"><option value="checker">Transparent (checkerboard)</option><option value="solid">Solid preview colour</option></select><input type="color" id="bgcol" value="#8fb8e8" style="width:34px;height:30px;padding:0;border:1px solid var(--line);border-radius:6px">
+<button id="savep">Save project</button><label class="btn" style="margin:0;color:var(--ink)">Open project<input id="openp" type="file" accept=".json,application/json" hidden></label><button id="xopen" class="on">Export…</button>
+<span class="sep"></span>
+<label style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showImg" checked> Artwork</label>
+<label style="margin:0;display:flex;align-items:center;gap:6px">Opacity <input type="range" id="alpha" min="10" max="100" value="100"></label>
+</header>
+<main>
+<aside id="left"><h2>Rig hierarchy</h2><div id="tree"></div></aside>
+<div id="stage"><canvas id="cv"></canvas><div id="hint"></div></div>
+<aside id="right"><h2>Bone properties</h2><div id="props"></div><hr>
+<h2>Animation</h2>
+<p class="mute" style="margin:0 0 6px">Needs bones from steps 1–3. Bind the artwork (step 4) to see the picture move.</p>
+<div class="actions" style="flex-wrap:wrap" id="beh"></div>
+<label class="row"><input type="checkbox" id="aadd"> Add to sequence instead of replacing</label>
+<label class="row"><input type="checkbox" id="afol" checked> Camera follows the character</label>
+<label>Speed <input type="range" id="asp" min="40" max="220" value="100"></label>
+<label>Intensity <input type="range" id="aint" min="30" max="180" value="100"></label>
+<label>Direction <select id="adir"><option value="1">Right</option><option value="-1">Left</option></select></label>
+<label>Describe what it should do<textarea id="acmd" style="height:56px;font:inherit" placeholder="e.g. walk slowly to the right, stop, wave, then run"></textarea></label>
+<div class="actions"><button id="ago">Make it so</button><button id="aclr">Clear</button></div>
+<div id="aseq" class="mute"></div>
+<div class="actions"><button id="aplay">Play</button><button id="astop">Stop</button><label style="margin:0;display:flex;gap:4px;align-items:center"><input type="checkbox" id="aloop" checked> Loop</label><button id="aexp">Export</button></div>
+<input type="range" id="ascrub" min="0" max="1000" value="0" style="width:100%">
+<div id="anote" class="mute"></div>
+<hr>
+<h2>Rig file</h2>
+<p class="mute" style="margin:0 0 6px">Rig data is saved as JSON, separate from the artwork.</p>
+<div class="actions"><button id="exp">Export JSON</button><button id="imp">Load from text</button></div>
+<textarea id="json" spellcheck="false" placeholder="Rig JSON appears here. Paste a rig and choose Load from text."></textarea>
+<div class="actions"><label class="btn" style="margin:0;color:var(--ink)">Open .json file<input id="jfile" type="file" accept=".json,application/json" hidden></label></div>
+</aside>
+</main>
+<div class="dlg" id="xdlg"><div>
+<h2 style="margin:0 0 8px">Export animation</h2>
+<div class="g2"><label>File name<input type="text" id="xname" value="riglab-animation"></label>
+<label>Format<select id="xfmt"><option value="png">Transparent PNG sequence (.zip)</option><option value="gif">Animated GIF</option><option value="webm">WebM (VP9 with alpha)</option><option value="mp4">MP4 (no transparency)</option></select></label>
+<label>Preset<select id="xpre"><option value="sq">Square social 1080 × 1080</option><option value="ver">Vertical social 1080 × 1920</option><option value="land">Landscape 1920 × 1080</option><option value="tight">Custom transparent animation (tight crop)</option></select></label>
+<label>Framing<select id="xmode"><option value="fit">Fit inside the canvas</option><option value="tight">Tight crop to the character</option></select></label>
+<label>Width (px)<input type="number" id="xw" value="1080" min="16" max="4096"></label><label>Height (px)<input type="number" id="xh" value="1080" min="16" max="4096"></label>
+<label>Frame rate<input type="number" id="xfps" value="24" min="1" max="60"></label><label>Margin / padding (px)<input type="number" id="xpad" value="20" min="0"></label>
+<label>Start (seconds)<input type="number" id="xt0" value="0" step=".1" min="0"></label><label>End (seconds)<input type="number" id="xt1" value="3" step=".1"></label>
+<label>Scale in tight mode (%)<input type="number" id="xscale" value="100" min="10" max="800"></label><label>Video quality (Mbps)<input type="number" id="xq" value="8" min="1" max="50"></label>
+<label>Background colour (when not transparent)<input type="color" id="xbg" value="#ffffff"></label><label>Background image (optional)<input type="file" id="xbgimg" accept="image/*"></label></div>
+<label class="row"><input type="checkbox" id="xtr" checked> Transparent background</label>
+<label class="row"><input type="checkbox" id="xloop" checked> Loop (GIF)</label>
+<label class="row"><input type="checkbox" id="xhq" checked> Re-bind artwork at higher resolution for sharper output</label>
+<div class="mute" style="margin-top:6px"><b>Exports contain only the character.</b> The rig, landmarks, guides, grid and checkerboard are never included, and the editor hides the rig while it exports.</div>
+<canvas id="xprev" width="2" height="2" style="display:none;width:100%;max-width:340px;margin:8px auto 0;border:1px solid var(--line);border-radius:6px;background:conic-gradient(var(--chk1) 25%,var(--chk2) 0 50%,var(--chk1) 0 75%,var(--chk2) 0) 0 0/16px 16px"></canvas>
+<div id="xnote" class="mute" style="margin-top:6px"></div><div id="xprog" style="margin:8px 0;font-size:13px"></div>
+<div class="actions"><button id="xgo" class="on">Export</button><button id="xprevb">Preview first frame</button><button id="xcancel">Close</button></div></div></div>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const cv=$("#cv"),cx=cv.getContext("2d");
+const S={img:null,name:"",bones:[],sel:null,tool:"select",v:{x:40,y:40,s:1},undo:[],redo:[],n:1,showImg:true,alpha:1,lm:null,showLm:true,bind:null,off:{x:0},follow:true,_poseSnapshot:[],_noBindBackup:null,dirty:false,editing:false,showRig:true};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const HINTS={select:"Select: drag a joint to reshape, drag a bone to move it and its children. Wheel zooms, Space-drag pans.",
+add:"Add bone: press on empty space or on an existing joint, then drag to set the bone’s end. Starting at a bone’s end joins it as a child.",
+pan:"Pan: drag to move the view. Wheel zooms."};
+
+/* ---------- rig model ---------- */
+const byId=id=>S.bones.find(b=>b.id===id);
+const kids=id=>S.bones.filter(b=>b.parent===id);
+function desc(id,o=[]){for(const k of kids(id)){o.push(k);desc(k.id,o)}return o}
+function newBone(x,y,parent,connected){const b={id:"b"+S.n,name:"bone "+S.n,parent,connected,x,y,tx:x,ty:y};S.n++;S.bones.push(b);return b}
+function sync(b){for(const k of kids(b.id))if(k.connected){k.x=b.tx;k.y=b.ty}}
+function setPolar(b,len,deg){const a=deg*Math.PI/180;b.tx=b.x+Math.cos(a)*len;b.ty=b.y+Math.sin(a)*len;sync(b)}
+function moveTree(b,dx,dy){for(const o of [b,...desc(b.id)]){o.x+=dx;o.y+=dy;o.tx+=dx;o.ty+=dy}}
+function removeBone(id){const b=byId(id);if(!b)return;for(const k of kids(id)){k.parent=b.parent;k.connected=false}S.bones=S.bones.filter(o=>o!==b);if(S.sel===id)S.sel=null}
+
+/* ---------- pose / snapshot helpers ---------- */
+function cloneBones(){return JSON.parse(JSON.stringify(S.bones))}
+function restoreBoneState(snapshot){if(!Array.isArray(snapshot))return false;S.bones=JSON.parse(JSON.stringify(snapshot));if(S.sel&&!byId(S.sel))S.sel=null;return true}
+function normalizeBoneNames(){const map={"thigh left":"thigh L","thigh right":"thigh R","shin left":"shin L","shin right":"shin R","upper arm left":"upper arm L","upper arm right":"upper arm R","forearm left":"forearm L","forearm right":"forearm R"};for(const b of S.bones)if(map[b.name])b.name=map[b.name]}
+function requiredBonesPresent(){const names=new Set(S.bones.map(b=>b.name));return["spine","head","upper arm L","upper arm R","forearm L","forearm R","thigh L","thigh R","shin L","shin R"].every(n=>names.has(n))}
+
+/* ---------- undo ---------- */
+const snap=()=>{S.undo.push(JSON.stringify([S.bones,S.lm]));if(S.undo.length>200)S.undo.shift();S.redo=[]};
+function restore(from,to){if(!from.length)return;to.push(JSON.stringify([S.bones,S.lm]));[S.bones,S.lm]=JSON.parse(from.pop());if(!S.bind||S.bind.ids.join()!==S.bones.map(b=>b.id).join())S.dirty=true;if(!byId(S.sel))S.sel=null;ui()}
+
+/* ---------- view ---------- */
+function resize(){const d=devicePixelRatio||1,w=cv.parentElement.clientWidth,h=cv.parentElement.clientHeight;cv.width=w*d;cv.height=h*d;cv.style.width=w+"px";cv.style.height=h+"px";draw()}
+function fit(){const w=cv.clientWidth,h=cv.clientHeight;let iw=800,ih=600;if(S.img){iw=S.img.width;ih=S.img.height}
+const s=Math.min(w/iw,h/ih)*.9;S.v={s,x:(w-iw*s)/2,y:(h-ih*s)/2};draw()}
+const pt=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left-S.v.x)/S.v.s,y:(e.clientY-r.top-S.v.y)/S.v.s}};
+
+/* ---------- drawing ---------- */
+function draw(){
+const d=devicePixelRatio||1,{x,y,s}=S.v,px=1/s;
+cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cv.width,cv.height);cx.setTransform(d*s,0,0,d*s,d*x,d*y);cx.translate(S.follow?0:S.off.x,0);if(A.active&&S.showRig)drawGround();
+if(S.img){if(S.showImg){cx.globalAlpha=S.alpha;const B=S.bind&&!S.editing&&S.bind.ids.join()===S.bones.map(b=>b.id).join()?S.bind:null;if(B){skin(B);cx.drawImage(B.cv,-B.pad/B.k,-B.pad/B.k,B.W2/B.k,B.H2/B.k)}else cx.drawImage(S.img,0,0);cx.globalAlpha=1}
+cx.strokeStyle=css("--line");cx.lineWidth=px;cx.strokeRect(0,0,S.img.width,S.img.height)}
+const bone=css("--bone"),acc=css("--acc"),panel=css("--panel");
+for(const b of (S.showRig?S.bones:[])){
+const sel=b.id===S.sel,col=sel?acc:bone,L=Math.hypot(b.tx-b.x,b.ty-b.y),a=Math.atan2(b.ty-b.y,b.tx-b.x),
+w=Math.min(L*.16,(sel?10:8)*px),nx=-Math.sin(a),ny=Math.cos(a),mx=b.x+Math.cos(a)*L*.2,my=b.y+Math.sin(a)*L*.2;
+cx.beginPath();cx.moveTo(b.x,b.y);cx.lineTo(mx+nx*w,my+ny*w);cx.lineTo(b.tx,b.ty);cx.lineTo(mx-nx*w,my-ny*w);cx.closePath();
+cx.globalAlpha=.7;cx.fillStyle=col;cx.fill();cx.globalAlpha=1;cx.lineWidth=1.5*px;cx.strokeStyle=col;cx.stroke();
+for(const [jx,jy,r] of [[b.x,b.y,5],[b.tx,b.ty,4]]){cx.beginPath();cx.arc(jx,jy,(sel?r+1:r)*px,0,7);cx.fillStyle=panel;cx.fill();cx.lineWidth=2*px;cx.strokeStyle=col;cx.stroke()}}
+if(S.lm&&S.showLm&&S.showRig)drawLm(px);
+}
+
+/* ---------- interaction ---------- */
+let D=null,space=false;
+const segDist=(p,b)=>{const dx=b.tx-b.x,dy=b.ty-b.y,l2=dx*dx+dy*dy||1e-9;let t=((p.x-b.x)*dx+(p.y-b.y)*dy)/l2;t=Math.max(0,Math.min(1,t));return Math.hypot(p.x-(b.x+t*dx),p.y-(b.y+t*dy))};
+function hit(p){const r=11/S.v.s;
+for(const b of [...S.bones].reverse()){if(Math.hypot(p.x-b.tx,p.y-b.ty)<r)return{b,mode:"tail"}}
+for(const b of [...S.bones].reverse()){if(!b.connected&&Math.hypot(p.x-b.x,p.y-b.y)<r)return{b,mode:"head"}}
+for(const b of [...S.bones].reverse()){if(segDist(p,b)<r*.7)return{b,mode:"body"}}return null}
+cv.addEventListener("pointerdown",e=>{
+cv.setPointerCapture(e.pointerId);const p=pt(e);MSG="";
+if(e.button===1||space||S.tool==="pan"){D={mode:"pan",sx:e.clientX,sy:e.clientY,vx:S.v.x,vy:S.v.y};return}
+if(S.tool==="lm"){let bk=null,bd=12/S.v.s;for(const n in S.lm){const q=S.lm[n],d=Math.hypot(p.x-q.x,p.y-q.y);if(d<bd){bd=d;bk=n}}if(bk){snap();D={mode:"lm",k:bk,moved:false}}return}
+if(S.tool==="pose"){if(!S.bind&&S.img&&S.bones.length)bind();const h=hit(p);if(!h)return;S.sel=h.b.id;snap();D={mode:"rot",b:h.b,moved:false};ui();return}
+if(S.tool==="add"){const r=11/S.v.s;let parent=null,conn=false,sx=p.x,sy=p.y;
+for(const b of S.bones){if(Math.hypot(p.x-b.tx,p.y-b.ty)<r){parent=b.id;conn=true;sx=b.tx;sy=b.ty;break}}
+if(!parent)for(const b of S.bones){if(Math.hypot(p.x-b.x,p.y-b.y)<r){parent=b.parent;conn=b.connected;sx=b.x;sy=b.y;break}}
+snap();S.editing=true;const nb=newBone(sx,sy,parent,conn);S.sel=nb.id;D={mode:"new",b:nb};ui();return}
+const h=hit(p);
+if(!h){S.sel=null;ui();return}
+S.sel=h.b.id;snap();S.editing=true;const grp=h.mode==="head"?S.bones.filter(o=>!o.connected&&Math.hypot(o.x-h.b.x,o.y-h.b.y)<.01):[h.b];D={mode:h.mode,b:h.b,grp,last:p,moved:false};ui()});
+cv.addEventListener("pointermove",e=>{
+if(!D)return;const p=pt(e);
+if(D.mode==="pan"){S.v.x=D.vx+e.clientX-D.sx;S.v.y=D.vy+e.clientY-D.sy}
+else if(D.mode==="new"||D.mode==="tail"){D.b.tx=p.x;D.b.ty=p.y;sync(D.b);D.moved=true}
+else if(D.mode==="head"){for(const o of D.grp){o.x=p.x;o.y=p.y}D.moved=true}
+else if(D.mode==="lm"){S.lm[D.k]={x:p.x,y:p.y};D.moved=true}
+else if(D.mode==="rot"){const b=D.b;rotTree(b,Math.atan2(p.y-b.y,p.x-b.x)-Math.atan2(b.ty-b.y,b.tx-b.x));D.moved=true}
+else if(D.mode==="body"){const dx=p.x-D.last.x,dy=p.y-D.last.y;if(!D.moved&&Math.hypot(dx,dy)*S.v.s<3)return;D.b.connected=false;moveTree(D.b,dx,dy);D.last=p;D.moved=true}
+draw()});
+const end=()=>{if(!D)return;
+if(D.mode==="new"&&Math.hypot(D.b.tx-D.b.x,D.b.ty-D.b.y)*S.v.s<6){removeBone(D.b.id);S.undo.pop();S.n--}
+else if(D.mode!=="pan"&&!D.moved&&D.mode!=="new")S.undo.pop();
+if(D.mode==="new"||D.mode==="tail"||D.mode==="head"||D.mode==="body")S.dirty=true;
+S.editing=false;D=null;ui()};
+cv.addEventListener("pointerup",end);cv.addEventListener("pointercancel",end);
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,f=Math.exp(-e.deltaY*.0015),ns=Math.max(.05,Math.min(40,S.v.s*f));
+S.v.x=mx-(mx-S.v.x)*ns/S.v.s;S.v.y=my-(my-S.v.y)*ns/S.v.s;S.v.s=ns;draw()},{passive:false});
+
+/* ---------- UI ---------- */
+function setTool(t){if(S.tool==="pose"&&t!=="pose")resetPose();S.tool=t;cv.style.cursor=t==="pan"?"grab":t==="add"?"crosshair":"default";ui()}
+function renderTree(){
+const el=$("#tree");if(!S.bones.length){el.innerHTML='<p class="mute">No bones yet. Choose Add bone, then drag on the canvas to draw one.</p>';return}
+const row=(b,dep)=>`<div class="node ${b.id===S.sel?"sel":""}" data-id="${b.id}" style="padding-left:${6+dep*14}px"><i></i>${esc(b.name)}</div>`+kids(b.id).map(k=>row(k,dep+1)).join("");
+el.innerHTML=S.bones.filter(b=>!b.parent||!byId(b.parent)).map(b=>row(b,0)).join("")}
+$("#tree").addEventListener("click",e=>{const n=e.target.closest(".node");if(n){S.sel=n.dataset.id;ui()}});
+function renderProps(){
+const b=byId(S.sel),el=$("#props");
+if(!b){el.innerHTML='<p class="mute">Select a bone to edit its name, parent, length and angle.</p>';return}
+const L=Math.hypot(b.tx-b.x,b.ty-b.y),A=Math.atan2(b.ty-b.y,b.tx-b.x)*180/Math.PI,bad=new Set([b.id,...desc(b.id).map(k=>k.id)]);
+el.innerHTML=`<label>Name<input type="text" id="pn" value="${esc(b.name)}"></label>
+<label>Parent<select id="pp"><option value="">None (root bone)</option>${S.bones.filter(o=>!bad.has(o.id)).map(o=>`<option value="${o.id}" ${o.id===b.parent?"selected":""}>${esc(o.name)}</option>`).join("")}</select></label>
+<label class="row"><input type="checkbox" id="pc" ${b.connected?"checked":""} ${b.parent?"":"disabled"}> Start at parent’s end</label>
+<label>Length (px)<input type="number" id="pl" step="1" min="1" value="${L.toFixed(1)}"></label>
+<label>Angle (degrees)<input type="number" id="pa" step="1" value="${A.toFixed(1)}"></label>
+<button id="pdel">Delete bone</button>`;
+$("#pn").onchange=e=>{snap();b.name=e.target.value.trim()||b.name;ui()};
+$("#pp").onchange=e=>{snap();b.parent=e.target.value||null;if(!b.parent)b.connected=false;ui()};
+$("#pc").onchange=e=>{snap();S.dirty=true;b.connected=e.target.checked;const p=byId(b.parent);if(b.connected&&p){b.x=p.tx;b.y=p.ty}ui()};
+const pol=()=>{snap();S.dirty=true;setPolar(b,Math.max(1,+$("#pl").value||1),+$("#pa").value||0);ui()};
+$("#pl").onchange=pol;$("#pa").onchange=pol;$("#pdel").onclick=delSel}
+function delSel(){if(!S.sel)return;snap();removeBone(S.sel);S.dirty=true;ui()}
+function ui(){
+if(S.dirty){S.dirty=false;S.bind=null;if(S.img&&S.bones.length&&!anim&&!A.active)bind()}
+document.querySelectorAll("[data-tool]").forEach(b=>b.classList.toggle("on",b.dataset.tool===S.tool));
+$("#undo").disabled=!S.undo.length;$("#redo").disabled=!S.redo.length;$("#del").disabled=!S.sel;
+$("#hint").textContent=MSG||((S.img?S.name+" · "+S.img.width+"×"+S.img.height+" px · ":"No image loaded · ")+S.bones.length+" bones. "+HINTS[S.tool]);
+renderTree();renderProps();draw()}
+
+/* ---------- image import ---------- */
+function loadImage(src,name,auto){const im=new Image();im.onload=async()=>{if(A.active)stopAnim();if(anim){cancelAnimationFrame(anim);anim=0}S.img=im;S.name=name;S.bones=[];S.lm=null;S.bind=null;S.sel=null;S.undo=[];S.redo=[];S._noBindBackup=null;S.dirty=false;A.rest=null;A.active=false;S.off.x=0;MSG="";fit();ui();if(auto&&$("#autorig").checked)await autoRig()};im.onerror=()=>{$("#hint").textContent="That file could not be read as an image. Use PNG, JPEG or WebP."};im.src=src}
+function readImage(f){const r=new FileReader();r.onload=()=>loadImage(r.result,f.name,true);r.onerror=()=>{$("#hint").textContent="That file could not be read."};r.readAsDataURL(f)}
+$("#file").onchange=e=>{const f=e.target.files[0];if(f)readImage(f);e.target.value=""};
+const st=$("#stage");
+st.addEventListener("dragover",e=>{e.preventDefault();st.classList.add("drop")});
+st.addEventListener("dragleave",()=>st.classList.remove("drop"));
+st.addEventListener("drop",e=>{e.preventDefault();st.classList.remove("drop");const f=e.dataTransfer.files[0];if(f&&f.type.startsWith("image/"))readImage(f)});
+$("#sample").onclick=()=>{
+const c=document.createElement("canvas");c.width=420;c.height=620;const g=c.getContext("2d");g.lineCap="round";g.lineJoin="round";
+const limb=(pts,w,col)=>{for(const [lw,lc] of [[w+8,"#2b2433"],[w,col]]){g.lineWidth=lw;g.strokeStyle=lc;g.beginPath();g.moveTo(...pts[0]);pts.slice(1).forEach(p=>g.lineTo(...p));g.stroke()}};
+limb([[160,360],[150,470],[148,570]],42,"#3d5a80");limb([[260,360],[270,470],[274,570]],42,"#3d5a80");
+limb([[150,568],[120,572]],30,"#e0a458");limb([[274,568],[304,572]],30,"#e0a458");
+limb([[150,195],[95,270],[70,350]],34,"#e0a458");limb([[270,195],[325,270],[350,350]],34,"#e0a458");
+g.fillStyle="#ee6c4d";g.strokeStyle="#2b2433";g.lineWidth=8;g.beginPath();g.roundRect(142,160,136,215,34);g.fill();g.stroke();
+limb([[210,150],[210,130]],26,"#e0a458");
+g.lineWidth=8;g.strokeStyle="#2b2433";g.fillStyle="#f2c48d";g.beginPath();g.arc(210,82,60,0,7);g.fill();g.stroke();
+g.fillStyle="#2b2433";g.beginPath();g.arc(188,78,6,0,7);g.arc(232,78,6,0,7);g.fill();g.lineWidth=5;g.beginPath();g.arc(210,98,16,.2,Math.PI-.2);g.stroke();
+loadImage(c.toDataURL("image/png"),"sample-character.png",false)};
+
+/* ---------- rig JSON ---------- */
+function exportRig(){return JSON.stringify({format:"riglab-rig",version:1,image:S.img?{name:S.name,width:S.img.width,height:S.img.height}:null,
+bones:S.bones.map(b=>({id:b.id,name:b.name,parent:b.parent,connected:b.connected,head:[+b.x.toFixed(2),+b.y.toFixed(2)],tail:[+b.tx.toFixed(2),+b.ty.toFixed(2)]}))},null,1)}
+function importRig(txt){try{const o=JSON.parse(txt);if(o.format!=="riglab-rig"||!Array.isArray(o.bones))throw 0;
+const bs=o.bones.map(b=>({id:String(b.id),name:String(b.name),parent:b.parent||null,connected:!!b.connected,x:+b.head[0],y:+b.head[1],tx:+b.tail[0],ty:+b.tail[1]}));
+if(bs.some(b=>[b.x,b.y,b.tx,b.ty].some(isNaN)))throw 0;
+snap();S.dirty=true;S.bones=bs;S.n=1+Math.max(0,...bs.map(b=>parseInt(b.id.slice(1))||0));S.sel=null;ui()}
+catch{$("#hint").textContent="That text is not a RigLab rig. Export a rig first, then paste it here."}}
+$("#exp").onclick=()=>{$("#json").value=exportRig()};
+$("#imp").onclick=()=>importRig($("#json").value);
+$("#jfile").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$("#json").value=r.result;importRig(r.result)};r.readAsText(f);e.target.value=""};
+
+/* ---------- landmarks, bones from landmarks, binding, pose ---------- */
+let MSG="",anim=0;
+Object.assign(HINTS,{lm:"Landmarks: drag any yellow dot to where that body point really is. L and R are the image’s left and right.",pose:"Pose: drag a bone to swing it, and the artwork follows. Choosing another tool puts the rig back at rest."});
+const LN={head:"head top",neck:"neck",shL:"L shoulder",shR:"R shoulder",elL:"L elbow",elR:"R elbow",wrL:"L hand",wrR:"R hand",pelvis:"pelvis",hipL:"L hip",hipR:"R hip",knL:"L knee",knR:"R knee",anL:"L ankle",anR:"R ankle"};
+function drawLm(px){cx.font=11*px+"px system-ui,sans-serif";for(const k in S.lm){const p=S.lm[k];cx.beginPath();cx.arc(p.x,p.y,6*px,0,7);cx.fillStyle="#ffd23f";cx.fill();cx.lineWidth=1.5*px;cx.strokeStyle="#2b2433";cx.stroke();cx.strokeStyle="#fff";cx.lineWidth=3*px;cx.strokeText(LN[k],p.x+9*px,p.y+4*px);cx.fillStyle="#2b2433";cx.fillText(LN[k],p.x+9*px,p.y+4*px)}}
+function detect(){
+if(!S.img){MSG="Import an image first.";ui();return}
+const im=S.img,k=Math.min(1,320/Math.max(im.width,im.height)),w=Math.max(8,Math.round(im.width*k)),h=Math.max(8,Math.round(im.height*k));
+const c=document.createElement("canvas");c.width=w;c.height=h;const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(im,0,0,w,h);const d=g.getImageData(0,0,w,h).data;
+const R=[];let top=-1,bot=-1,n=0;
+for(let y=0;y<h;y++){const r=[];let s=-1;for(let x=0;x<=w;x++){const on=x<w&&d[(y*w+x)*4+3]>100;if(on)n++;if(on&&s<0)s=x;else if(!on&&s>=0){if(x-s>1)r.push([s,x-1]);s=-1}}R.push(r);if(r.length){if(top<0)top=y;bot=y}}
+if(top<0||bot-top<20||n>.9*w*h){MSG="No character outline found. Use a PNG with a transparent background around the character.";ui();return}
+const H=bot-top,tw=y=>R[y].reduce((a,r)=>a+r[1]-r[0]+1,0),mid=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+let ny=top+Math.round(H*.1),best=1e9;for(let y=ny;y<=top+H*.4;y++){const v=R[y].length?tw(y):1e9;if(v<best){best=v;ny=y}}
+const nr=R[ny].reduce((a,r)=>r[1]-r[0]>a[1]-a[0]?r:a),cx0=(nr[0]+nr[1])/2,sy=Math.round(ny+H*.09);
+const sr=R[sy].find(r=>r[0]<=cx0&&cx0<=r[1])||nr,shL=[sr[0]+(sr[1]-sr[0])*.12,sy],shR=[sr[1]-(sr[1]-sr[0])*.12,sy];
+const band=.22*H,cnt=y=>R[y].filter(r=>Math.abs((r[0]+r[1])/2-cx0)<band).length;
+let cy=-1;for(let y=bot-Math.round(H*.08);y>ny;y--){if(cnt(y)<2){cy=y;break}}
+if(cy<0||cy>top+H*.7)cy=top+Math.round(H*.55);
+let mnx=1e9,mny=sy,mxx=-1,mxy=sy;for(let y=sy;y<=cy+H*.05&&y<=bot;y++){if(!R[y].length)continue;const a=R[y][0][0],b=R[y][R[y].length-1][1];if(a<mnx){mnx=a;mny=y}if(b>mxx){mxx=b;mxy=y}}
+const wrL=mid([mnx,mny],shL,.12),wrR=mid([mxx,mxy],shR,.12);
+const ly=Math.min(bot,cy+Math.round(H*.04)),cr=R[ly].filter(r=>Math.abs((r[0]+r[1])/2-cx0)<band).map(r=>(r[0]+r[1])/2).sort((a,b)=>a-b);
+const hy=cy-H*.02,hx=cr.length>=2?[cr[0],cr[cr.length-1]]:[cx0-H*.07,cx0+H*.07];
+const ay=bot-Math.round(H*.07),ac=R[ay].map(r=>(r[0]+r[1])/2),near=x=>ac.length?ac.reduce((a,b)=>Math.abs(b-x)<Math.abs(a-x)?b:a):x;
+const hipL=[hx[0],hy],hipR=[hx[1],hy],anL=[near(hx[0]),ay],anR=[near(hx[1]),ay];
+const lm={head:[cx0,top],neck:[cx0,ny],shL,shR,elL:mid(shL,wrL,.5),elR:mid(shR,wrR,.5),wrL,wrR,pelvis:[cx0,hy],hipL,hipR,knL:mid(hipL,anL,.5),knR:mid(hipR,anR,.5),anL,anR};
+snap();S.lm={};for(const q in lm)S.lm[q]={x:lm[q][0]/k,y:lm[q][1]/k};
+S.showLm=true;$("#showLm").checked=true;MSG="Landmarks placed. Drag any dot that is wrong (step 2), then choose Generate bones.";ui()}
+function gen(){const l=S.lm;if(!l){MSG="Detect landmarks first (step 1).";ui();return}
+snap();S.bones=[];S.sel=null;S.bind=null;S.dirty=true;
+const mk=(nm,a,b,par,con)=>{const o=newBone(l[a].x,l[a].y,par?par.id:null,con);o.name=nm;o.tx=l[b].x;o.ty=l[b].y;return o};
+const sp=mk("spine","pelvis","neck",0,0);mk("head","neck","head",sp,1);
+for(const s of ["L","R"]){const u=mk("upper arm "+s,"sh"+s,"el"+s,sp,0);mk("forearm "+s,"el"+s,"wr"+s,u,1);const t=mk("thigh "+s,"hip"+s,"kn"+s,sp,0);mk("shin "+s,"kn"+s,"an"+s,t,1)}
+S.showLm=false;$("#showLm").checked=false;MSG="Made "+S.bones.length+" bones from the landmarks. Next: Bind artwork.";ui()}
+function bind(cap){cap=typeof cap==="number"&&cap>0?cap:512;
+if(!S.img||!S.bones.length){MSG="Generate bones first (step 3).";ui();return}
+if(S.bones.length>250){MSG="Too many bones to attach the artwork (limit 250).";ui();return}
+const im=S.img,k=Math.min(1,cap/Math.max(im.width,im.height)),w=Math.round(im.width*k),h=Math.round(im.height*k),nb=S.bones.length;
+const c=document.createElement("canvas");c.width=w;c.height=h;const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(im,0,0,w,h);
+const u=new Uint32Array(g.getImageData(0,0,w,h).data.buffer),sg=S.bones.map(b=>[b.x*k,b.y*k,b.tx*k,b.ty*k]);
+const px=[],py=[],col=[];
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){const v=u[y*w+x];if((v>>>24)>=16){px.push(x);py.push(y);col.push(v)}}
+const n=px.length,dm=new Float32Array(n*nb),sum=new Float64Array(nb),cn=new Float64Array(nb);
+for(let j=0;j<n;j++){let bi=0,bd=1e9;for(let i=0;i<nb;i++){const s=sg[i],dx=s[2]-s[0],dy=s[3]-s[1],l2=dx*dx+dy*dy||1e-9;let t=((px[j]-s[0])*dx+(py[j]-s[1])*dy)/l2;t=t<0?0:t>1?1:t;
+const dd=Math.hypot(px[j]-s[0]-t*dx,py[j]-s[1]-t*dy);dm[j*nb+i]=dd;if(dd<bd){bd=dd;bi=i}}sum[bi]+=bd;cn[bi]++}
+const rad=Array.from(sum,(t,i)=>Math.max(4,cn[i]?2*t/cn[i]:4)),i1=new Uint8Array(n),i2=new Uint8Array(n),w1=new Float32Array(n);
+for(let j=0;j<n;j++){let a=0,b=0,p1=-1,p2=-1;for(let i=0;i<nb;i++){const q=Math.pow(1/(dm[j*nb+i]/rad[i]+.1),14);if(q>p1){p2=p1;b=a;p1=q;a=i}else if(q>p2){p2=q;b=i}}
+i1[j]=a;i2[j]=nb>1?b:a;w1[j]=nb>1?p1/(p1+p2):1}
+const pad=Math.round(Math.max(w,h)*.6),W2=w+2*pad,H2=h+2*pad,o=document.createElement("canvas");o.width=W2;o.height=H2;
+S.bind={k,cap,w,h,pad,W2,H2,n,px:Float32Array.from(px),py:Float32Array.from(py),col:Uint32Array.from(col),i1,i2,w1,
+ids:S.bones.map(b=>b.id),rest:S.bones.map(b=>({x:b.x*k,y:b.y*k,a:Math.atan2(b.ty-b.y,b.tx-b.x)})),restBones:JSON.parse(JSON.stringify(S.bones)),cv:o,g:o.getContext("2d"),im:new ImageData(W2,H2)};
+MSG="Artwork is attached to the "+nb+" bones automatically ("+n+" pixels), so it follows them. Try Pose or Test movement.";ui()}
+function skin(B){const k=B.k,W=B.W2,H=B.H2,pd=B.pad,m=B.ids.map((id,i)=>{const b=byId(id),r=B.rest[i],a=Math.atan2(b.ty-b.y,b.tx-b.x)-r.a,c=Math.cos(a),s=Math.sin(a);return[c,s,b.x*k-(c*r.x-s*r.y),b.y*k-(s*r.x+c*r.y)]});
+const o=new Uint32Array(B.im.data.buffer);o.fill(0);
+for(let j=0;j<B.n;j++){const x=B.px[j],y=B.py[j],A=m[B.i1[j]],C=m[B.i2[j]],f=B.w1[j],e=1-f;
+const X=f*(A[0]*x-A[1]*y+A[2])+e*(C[0]*x-C[1]*y+C[2]),Y=f*(A[1]*x+A[0]*y+A[3])+e*(C[1]*x+C[0]*y+C[3]),ix=Math.floor(X)+pd,iy=Math.floor(Y)+pd;
+if(ix<0||iy<0||ix>=W-1||iy>=H-1)continue;const v=B.col[j],q=iy*W+ix;o[q]=v;o[q+1]=v;o[q+W]=v;o[q+W+1]=v}
+B.g.putImageData(B.im,0,0)}
+function rotTree(b,a){const c=Math.cos(a),s=Math.sin(a),X=b.x,Y=b.y,r=(o,i,j)=>{const dx=o[i]-X,dy=o[j]-Y;o[i]=X+c*dx-s*dy;o[j]=Y+s*dx+c*dy};
+r(b,"tx","ty");for(const o of desc(b.id)){r(o,"x","y");r(o,"tx","ty")}}
+function resetPose(){const rb=S.bind?S.bind.restBones:(S._noBindBackup?JSON.parse(S._noBindBackup):null);if(!rb)return;for(const r of rb){const b=byId(r.id);if(b){b.x=r.x;b.y=r.y;b.tx=r.tx;b.ty=r.ty}}}
+function poseDeltas(d){resetPose();for(const b of S.bones)if(d[b.name])rotTree(b,d[b.name]*Math.PI/180)}
+$("#det").onclick=detect;$("#gen").onclick=gen;$("#bnd").onclick=()=>bind();
+$("#rst").onclick=()=>{resetPose();ui()};
+$("#showLm").onchange=e=>{S.showLm=e.target.checked;draw()};
+$("#showRig").onchange=e=>{S.showRig=e.target.checked;draw()};
+// Test movement also works before the artwork is bound: the bones are backed up and restored afterwards.
+$("#tst").onclick=()=>{const finish=()=>{anim=0;if(S._noBindBackup){S.bones=JSON.parse(S._noBindBackup);S._noBindBackup=null}else resetPose();ui()};
+if(anim){cancelAnimationFrame(anim);finish();return}
+if(!bn("spine")||!bn("thigh L")){MSG="Generate bones first (steps 1–3).";ui();return}
+if(A.active)stopAnim();
+if(!S.bind&&S.img)bind();
+S._noBindBackup=S.bind?null:JSON.stringify(S.bones);
+const t0=performance.now(),f=t=>{const u=(t-t0)/1000,a=(1-Math.cos(u*3))/2;
+poseDeltas({"upper arm L":70*a,"forearm L":35*a,"upper arm R":-70*a,"forearm R":-35*a,"thigh L":25*a,"shin L":15*a,"thigh R":-25*a,"shin R":-15*a,head:12*Math.sin(u*3)});draw();
+if(u<5)anim=requestAnimationFrame(f);else finish()};anim=requestAnimationFrame(f)};
+
+/* ---------- animation engine: deterministic, procedural, works on the existing rig by bone name ---------- */
+const TAU=Math.PI*2,sn=Math.sin,cs=Math.cos,mx=Math.max,mn=Math.min,cl=(v,a,b)=>mn(b,mx(a,v));
+const SW=n=>n.endsWith(" L")?n.slice(0,-1)+"R":n.endsWith(" R")?n.slice(0,-1)+"L":n;
+const A={steps:[],play:false,active:false,t:0,T:0,rest:null,ground:0,sc:1,sim:null,raf:0,last:0};
+const newSim=()=>({t:0,off:0,prev:null,foot:-1,last:0});
+/* each behaviour: (time, intensity) -> {r:{bone:degrees}, air:px at 600px height, tr:1 if it travels}; written for rightward travel, mirrored for leftward */
+const BEH={
+idle:(t,k)=>{const b=sn(t*TAU*.25);return{r:{spine:b*k,head:2*sn(t*TAU*.17)*k,"upper arm L":2*b*k,"upper arm R":-2*b*k},air:.8*b*k}},
+walk:(t,k)=>{const p=t*TAU*.9,s=sn(p),c=cs(p),a=22*k,kn=45*k;return{tr:1,ct:c>0?0:1,r:{"thigh L":a*s,"thigh R":-a*s,"shin L":kn*mx(0,-c),"shin R":kn*mx(0,c),"upper arm L":-16*k*s,"upper arm R":16*k*s,"forearm L":-10*k,"forearm R":10*k,spine:3*k,head:-2*k*s}}},
+run:(t,k)=>{const p=t*TAU*1.5,s=sn(p),c=cs(p),a=36*k,kn=80*k;return{tr:1,ct:c>0?0:1,r:{"thigh L":a*s,"thigh R":-a*s,"shin L":kn*mx(0,-c),"shin R":kn*mx(0,c),"upper arm L":-45*k*s,"upper arm R":45*k*s,"forearm L":30*k,"forearm R":-30*k,spine:9*k,head:-4*k},air:10*k*(1-Math.abs(c))}},
+jump:(t,k)=>{const u=(t/1.2)%1,cr=u<.25?sn(u/.25*1.5708):u>.75?mx(0,1-(u-.75)/.25):0,v=cl((u-.3)/.45,0,1),a=u>.3&&u<.75?4*v*(1-v):0,up=a>0?1:0;
+return{r:{"thigh L":cr*30*k+a*10,"thigh R":-cr*30*k-a*10,"shin L":-cr*65*k+a*20,"shin R":cr*65*k-a*20,"upper arm L":-cr*20+up*95*k,"upper arm R":cr*20-up*95*k,spine:cr*5*k},air:a*55*k}},
+wave:(t,k)=>{const e=cl(t/.4,0,1);return{r:{"upper arm R":-115*e,"forearm R":-30*e*k*sn(t*TAU*2.2),head:-4*e}}},
+point:(t,k)=>{const e=cl(t/.3,0,1);return{r:{"upper arm R":-85*e,"forearm R":-5*e,head:-5*e}}},
+look:(t,k)=>({r:{head:25*k*sn(t*TAU*.35)}}),
+talk:(t,k)=>({r:{head:4*k*sn(t*TAU*1.7)+2*sn(t*TAU*.6),"upper arm R":-14*k*mx(0,sn(t*TAU*.7)),"forearm R":-18*k*mx(0,sn(t*TAU*.7)),spine:1.5*k*sn(t*TAU*1.1)},air:.5*k*mx(0,sn(t*TAU*1.7))}),
+happy:(t,k)=>({r:{"upper arm L":45*k,"upper arm R":-45*k,"forearm L":10,"forearm R":-10,head:-5*sn(t*TAU*1.5)},air:6*k*Math.abs(sn(t*TAU*1.5))}),
+sad:(t,k)=>({r:{head:14*k,spine:6*k,"upper arm L":-6*k,"upper arm R":6*k}}),
+surprised:(t,k)=>{const e=cl(t/.15,0,1);return{r:{"upper arm L":65*k*e,"upper arm R":-65*k*e,"forearm L":-15*e,"forearm R":15*e,head:-6*e,spine:-4*e},air:t<.3?10*k*sn(t/.3*Math.PI):0}},
+angry:(t,k)=>({r:{"upper arm L":-14*k,"upper arm R":14*k,"forearm L":40*k,"forearm R":-40*k,spine:5*k,head:3*k*sn(t*TAU*5)}}),
+confused:(t,k)=>({r:{head:12*k*sn(t*TAU*.5),"upper arm R":-65*k,"forearm R":-45*k,spine:-2*k}})};
+const DUR={idle:3,walk:4,run:4,jump:2.4,wave:2.5,point:1.5,look:3,talk:4,happy:2.5,sad:2.5,surprised:2,angry:2.5,confused:3};
+function poseOf(s,t){const r={};let air=0,tr=0,ct=null;for(const b of s.b){const o=BEH[b.n](t*b.sp,b.k);for(const q in o.r)r[q]=(r[q]||0)+o.r[q];air+=o.air||0;tr=tr||o.tr||0;if(o.ct!=null)ct=o.ct}
+if(s.dir<0){const m={};for(const q in r)m[SW(q)]=-r[q];return{r:m,air,tr,ct:ct==null?null:1-ct}}return{r,air,tr,ct}}
+function blend(t){let i=0,st=0;for(;i<A.steps.length-1&&t>=st+A.steps[i].dur;i++)st+=A.steps[i].dur;
+const cur=poseOf(A.steps[i],t-st),lt=t-st;
+if(i>0&&lt<.25){const pst=st-A.steps[i-1].dur,pv=poseOf(A.steps[i-1],t-pst),w=lt/.25,e=w*w*(3-2*w),r={};
+for(const q of new Set([...Object.keys(pv.r),...Object.keys(cur.r)]))r[q]=(pv.r[q]||0)*(1-e)+(cur.r[q]||0)*e;
+return{r,air:pv.air*(1-e)+cur.air*e,tr:e<.5?pv.tr:cur.tr,ct:e<.5?pv.ct:cur.ct}}return cur}
+const bn=n=>S.bones.find(b=>b.name===n);
+function capRest(){const sl=bn("shin L"),sr=bn("shin R"),hd=bn("head");
+if(!sl||!sr||!hd||!bn("thigh L")||!bn("spine")){A.msg="Generate bones first (steps 1–3): the animation needs the spine, head, arms and legs.";return false}
+A.rest=JSON.parse(JSON.stringify(S.bones));A.ground=mx(sl.ty,sr.ty);A.sc=mx(.2,(A.ground-hd.ty)/600);A.active=true;A.sim=newSim();return true}
+function restoreRest(){if(!A.rest)return;for(const r of A.rest){const b=byId(r.id);if(b){b.x=r.x;b.y=r.y;b.tx=r.tx;b.ty=r.ty}}S.off.x=0;A.active=false}
+function applyPose(p){for(const r of A.rest){const b=byId(r.id);b.x=r.x;b.y=r.y;b.tx=r.tx;b.ty=r.ty}
+for(const b of S.bones)if(p.r[b.name])rotTree(b,p.r[b.name]*Math.PI/180);
+const L=bn("shin L"),R=bn("shin R"),dy=A.ground-mx(L.ty,R.ty)-(p.air||0)*A.sc;
+for(const b of S.bones){b.y+=dy;b.ty+=dy}return[{x:L.tx,y:L.ty},{x:R.tx,y:R.ty}]}
+function simStep(t){const p=blend(t),an=applyPose(p),f=p.ct==null?-1:p.ct,s=A.sim;let dx=0;
+if(p.tr&&s.prev){if((p.air||0)*A.sc>2||f<0)dx=s.last;else if(f===s.foot){dx=-(an[f].x-s.prev[f]);s.last=dx}}
+s.off+=dx;s.prev=[an[0].x,an[1].x];s.foot=f}
+function render(t){if(!A.steps.length||!A.rest)return;const s=A.sim;if(t<s.t-1e-6)A.sim=newSim();
+while(A.sim.t+1/30<=t+1e-9){A.sim.t+=1/30;simStep(A.sim.t)}
+applyPose(blend(t));S.off.x=A.sim.off;if(A.quiet)return;draw();$("#ascrub").value=A.T?Math.round(1000*t/A.T):0}
+function drawGround(){const g=A.ground+6,off=S.follow?S.off.x:0,w=S.img?S.img.width:800,x0=-w,x1=2*w;cx.save();cx.strokeStyle=css("--mute");cx.lineWidth=1.5/S.v.s;cx.beginPath();cx.moveTo(x0,g);cx.lineTo(x1,g);for(let x=Math.floor(x0/60)*60;x<x1;x+=60){const q=x-(off%60);cx.moveTo(q,g);cx.lineTo(q-8,g+10)}cx.stroke();cx.restore()}
+$("#afol").onchange=e=>{S.follow=e.target.checked;draw()};
+function updateSeq(){A.T=A.steps.reduce((a,s)=>a+s.dur,0);$("#aseq").textContent=A.steps.length?A.steps.map(s=>s.b.map(x=>x.n).join("+")+(s.dir<0?" ←":" →")+" "+s.dur+"s").join("  ›  ")+"  (total "+A.T.toFixed(1)+"s)":"No actions yet. Pick one above or describe it in words."}
+function tick(ts){if(!A.play)return;A.t+=(ts-A.last)/1000;A.last=ts;
+if(A.t>=A.T){if($("#aloop").checked)A.t%=A.T;else{A.t=A.T;A.play=false;$("#aplay").textContent="Play"}}
+render(A.t);if(A.play)A.raf=requestAnimationFrame(tick)}
+function play(){if(!A.steps.length){$("#anote").textContent="Pick an action or describe one first.";return}
+if(!A.active&&!S.bind&&S.img&&S.bones.length)bind();
+if(!A.active&&!capRest()){$("#anote").textContent=A.msg;return}
+A.play=true;$("#aplay").textContent="Pause";A.last=performance.now();cancelAnimationFrame(A.raf);A.raf=requestAnimationFrame(tick)}
+function pause(){A.play=false;$("#aplay").textContent="Play"}
+function stopAnim(){pause();A.t=0;restoreRest();$("#ascrub").value=0;draw()}
+const mkStep=(names,o)=>({b:names.map(n=>({n,sp:o.sp,k:o.k})),dir:o.dir,dur:o.dur||mx(...names.map(n=>DUR[n]))});
+const ctl=()=>({sp:$("#asp").value/100,k:$("#aint").value/100,dir:+$("#adir").value});
+function setSteps(st,notes){if(A.active)stopAnim();A.steps=st;A.t=0;updateSeq();$("#anote").textContent=(notes||[]).join(" ");play()}
+function parseCmd(txt){const notes=[],steps=[],c=ctl();
+const parts=txt.toLowerCase().split(/,|;|\bthen\b|\band then\b|\bafter that\b|\band (?=begin|start|stop|turn|wave|run|walk|jump|talk|look)/).map(x=>x.trim()).filter(Boolean);
+const KW=[["idle",/\b(idle|stand|rest|breathe|wait)\b|\bstop\b/],["walk",/\b(walk|stroll|step)/],["run",/\b(run|sprint|jog|dash|rush)/],["jump",/\b(jump|hop|leap)/],["wave",/\b(wave|waving|hello|greet)/],["point",/\bpoint/],["look",/\b(turn|look|glance)/],["talk",/\b(talk|speak|say|speech|chat)/],["happy",/\b(happy|joy|cheer|smile)/],["sad",/\b(sad|cry|unhappy|depress)/],["surprised",/\b(surpris|shock|startl|gasp)/],["angry",/\b(angry|mad|furious|annoy)/],["confused",/\b(confus|puzzl)/]];
+for(let part of parts){part=part.replace(/\blook(s|ing)? (?=(surpris|sad|happy|angry|confus|mad|shock))/,"");
+const names=KW.filter(([n,re])=>re.test(part)).map(x=>x[0]);
+if(!names.length){notes.push("Did not understand “"+part+"”.");continue}
+if(names.length>1&&names.includes("idle"))names.splice(names.indexOf("idle"),1);
+const o={...c};if(/slow/.test(part))o.sp=.6;if(/quick|fast|rapid|hurr/.test(part))o.sp=1.5;if(/excit|energetic|big|strong/.test(part))o.k=1.4;if(/gentl|subtle|small|calm/.test(part))o.k=.6;
+if(/\bleft\b/.test(part))o.dir=-1;else if(/\bright\b/.test(part))o.dir=1;
+const m=part.match(/(\d+(\.\d+)?)\s*(s\b|sec|second)/);if(m)o.dur=+m[1];
+if(/camera|toward(s)? (me|you)|facing/.test(part))notes.push("This rig has no depth axis, so “toward the camera” became in-place motion.");
+if(names.includes("talk"))notes.push("Talking is body-only: this rig has no mouth or eye controls (see the limits list).");
+if(/blink|lip|mouth/.test(part))notes.push("Blinking and mouth shapes need face controls this rig does not have yet.");
+steps.push(mkStep(names,o))}
+return{steps,notes:[...new Set(notes)]}}
+$("#beh").innerHTML=Object.keys(BEH).map(n=>`<button data-b="${n}">${n}</button>`).join("");
+$("#beh").onclick=e=>{const n=e.target.dataset.b;if(!n)return;const st=mkStep([n],ctl());
+if($("#aadd").checked&&A.steps.length){A.steps.push(st);updateSeq();if(!A.play)play()}else setSteps([st],n==="talk"?["Talking is body-only: this rig has no mouth controls."]:[])};
+$("#ago").onclick=()=>{const r=parseCmd($("#acmd").value);if(!r.steps.length){$("#anote").textContent=r.notes.join(" ")||"Describe an action, for example: walk slowly to the right, then wave.";return}setSteps(r.steps,r.notes)};
+$("#aclr").onclick=()=>{stopAnim();A.steps=[];updateSeq();$("#anote").textContent=""};
+$("#aplay").onclick=()=>A.play?pause():play();$("#astop").onclick=stopAnim;
+$("#ascrub").oninput=e=>{if(!A.steps.length)return;pause();if(!A.active&&!capRest()){$("#anote").textContent=A.msg;return}A.t=A.T*e.target.value/1000;render(A.t)};
+$("#aexp").onclick=()=>{$("#json").value=JSON.stringify({format:"riglab-anim",version:1,steps:A.steps},null,1)};
+updateSeq();
+
+/* ---------- editor background, export (PNG zip / GIF / WebM / MP4) and project save ---------- */
+const bgSel=$("#bgmode"),bgCol=$("#bgcol"),X={};
+function applyBg(){$("#stage").style.background=bgSel.value==="solid"?bgCol.value:""}
+bgSel.onchange=bgCol.oninput=applyBg;
+async function saveBlob(name,blob){try{const d=window.claude&&await claude.use("downloads");if(d){await d.save({filename:name,data:blob});return"saved"}}catch(e){if(e&&e.code==="declined")return"cancelled"}
+const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);return"downloaded"}
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return b=>{let c=~0;for(let i=0;i<b.length;i++)c=t[(c^b[i])&255]^(c>>>8);return~c>>>0}})();
+function zip(files){const en=new TextEncoder(),parts=[],cen=[];let off=0,cs=0;
+for(const f of files){const nm=en.encode(f.name),crc=CRC(f.data),n=f.data.length,h=new DataView(new ArrayBuffer(30));
+h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x800,true);h.setUint16(12,0x21,true);h.setUint32(14,crc,true);h.setUint32(18,n,true);h.setUint32(22,n,true);h.setUint16(26,nm.length,true);parts.push(h.buffer,nm,f.data);
+const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x800,true);c.setUint16(14,0x21,true);c.setUint32(16,crc,true);c.setUint32(20,n,true);c.setUint32(24,n,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);cen.push(c.buffer,nm);cs+=46+nm.length;off+=30+nm.length+n}
+const e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+return new Blob([...parts,...cen,e.buffer],{type:"application/zip"})}
+function lzw(px){const out=[];let bits=0,nb=0,cs=9,next=258,dict=new Map();
+const emit=c=>{bits|=c<<nb;nb+=cs;while(nb>=8){out.push(bits&255);bits>>>=8;nb-=8}};
+emit(256);let w=px[0];
+for(let i=1;i<px.length;i++){const c=px[i],key=(w<<8)|c,v=dict.get(key);
+if(v!==undefined)w=v;else{emit(w);if(next<4096){dict.set(key,next++);if(next>(1<<cs)&&cs<12)cs++}else{emit(256);dict.clear();next=258;cs=9}w=c}}
+emit(w);emit(257);if(nb>0)out.push(bits&255);return out}
+const gidx=d=>{const n=d.length/4,o=new Uint8Array(n);for(let i=0;i<n;i++)o[i]=d[i*4+3]<128?255:36*Math.round(d[i*4]/51)+6*Math.round(d[i*4+1]/51)+Math.round(d[i*4+2]/51);return o};
+function gifBlob(frames,w,h,fps,loop){const o=[],u16=v=>o.push(v&255,(v>>8)&255),asc=t=>[...t].map(c=>c.charCodeAt(0));o.push(...asc("GIF89a"));u16(w);u16(h);o.push(0xF7,255,0);
+for(let r=0;r<6;r++)for(let g=0;g<6;g++)for(let b=0;b<6;b++)o.push(r*51,g*51,b*51);for(let i=216;i<256;i++)o.push(0,0,0);
+if(loop)o.push(0x21,0xFF,11,...asc("NETSCAPE2.0"),3,1,0,0,0);
+const dl=Math.max(2,Math.round(100/fps));
+for(const f of frames){o.push(0x21,0xF9,4,0x09,dl&255,dl>>8,255,0,0x2C);u16(0);u16(0);u16(w);u16(h);o.push(0,8);const d=lzw(f);for(let i=0;i<d.length;i+=255){const n=Math.min(255,d.length-i);o.push(n);for(let j=0;j<n;j++)o.push(d[i+j])}o.push(0)}
+o.push(0x3B);return new Blob([new Uint8Array(o)],{type:"image/gif"})}
+const $v=id=>$("#"+id).value,$c=id=>$("#"+id).checked;
+const XIDS=["xname","xfmt","xpre","xmode","xw","xh","xfps","xpad","xt0","xt1","xscale","xq","xbg"],XCH=["xtr","xloop","xhq"];
+const getX=()=>({...Object.fromEntries(XIDS.map(i=>[i,$v(i)])),...Object.fromEntries(XCH.map(i=>[i,$c(i)]))});
+const setX=o=>{if(!o)return;XIDS.forEach(i=>{if(o[i]!=null)$("#"+i).value=o[i]});XCH.forEach(i=>{if(o[i]!=null)$("#"+i).checked=o[i]})};
+const PRE={sq:[1080,1080,"fit"],ver:[1080,1920,"fit"],land:[1920,1080,"fit"],tight:[0,0,"tight"]};
+$("#xpre").onchange=()=>{const p=PRE[$v("xpre")];if(p[0]){$("#xw").value=p[0];$("#xh").value=p[1]}$("#xmode").value=p[2];$("#xtr").checked=true;fmtNote()};
+const vp9=()=>typeof MediaRecorder!=="undefined"&&MediaRecorder.isTypeSupported("video/webm;codecs=vp9");
+const mp4m=()=>typeof MediaRecorder!=="undefined"?["video/mp4;codecs=avc1.42E01E","video/mp4;codecs=avc1"].find(m=>MediaRecorder.isTypeSupported(m)):null;
+function fmtNote(){const f=$v("xfmt"),N={
+png:"Best for Procreate, Procreate Dreams, After Effects, Premiere, DaVinci Resolve and Final Cut. Every frame is a PNG with a full alpha channel, plus manifest.json with the timing and a README with ffmpeg commands (including ProRes 4444 and WebM with alpha).",
+gif:"GIF has only on/off transparency (no smooth partial transparency), and at most 256 colours, so soft edges become hard and gradients can band. Use the PNG sequence for the best quality.",
+webm:vp9()?"Records in real time in this browser, then decodes the result to check that transparency really survived. If it did not, nothing is saved. Procreate Dreams does not list WebM as an import format.":"This browser cannot record VP9 WebM. Use the PNG sequence and the ffmpeg command in its README.",
+mp4:mp4m()?"Ordinary MP4 (H.264) cannot hold transparency, so the animation is composited over the colour or image you choose. Recorded in real time by this browser.":"This browser cannot record H.264 MP4 (it would only be able to write a different codec inside an .mp4 file, which many apps reject, so it is disabled). Export a PNG sequence and convert it with ffmpeg, or use a desktop Chrome or Safari that has H.264."}[f];
+if(f==="mp4")$("#xtr").checked=false;$("#xtr").disabled=f==="mp4";$("#xnote").textContent=N+(f==="gif"||f==="png"?"":"")}
+$("#xfmt").onchange=fmtNote;
+$("#xopen").onclick=()=>{if(!A.steps.length){MSG="Make an animation first (Animation panel), then export it.";ui();return}$("#xt1").value=+A.T.toFixed(2);fmtNote();$("#xprog").textContent="";$("#xdlg").classList.add("on")};
+$("#xcancel").onclick=()=>$("#xdlg").classList.remove("on");
+let XBG=null;$("#xbgimg").onchange=e=>{const f=e.target.files[0];if(!f){XBG=null;return}const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>XBG=im;im.src=r.result};r.readAsDataURL(f)};
+function bbox(B){const o=new Uint32Array(B.im.data.buffer),W=B.W2,H=B.H2;let x0=W,y0=H,x1=-1,y1=-1;for(let y=0;y<H;y++){const r=y*W;for(let x=0;x<W;x++)if(o[r+x]>>>24){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+return x1<0?null:[(x0-B.pad)/B.k,(y0-B.pad)/B.k,(x1+1-B.pad)/B.k,(y1+1-B.pad)/B.k]}
+function paint(c,L){const g=c.getContext("2d");g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,c.width,c.height);
+if(!L.tr){g.fillStyle=L.bg;g.fillRect(0,0,c.width,c.height);if(L.img){const k=Math.max(c.width/L.img.width,c.height/L.img.height),w=L.img.width*k,h=L.img.height*k;g.drawImage(L.img,(c.width-w)/2,(c.height-h)/2,w,h)}}
+const B=S.bind;g.imageSmoothingEnabled=true;g.imageSmoothingQuality="high";g.setTransform(L.sc,0,0,L.sc,L.ox-L.u[0]*L.sc,L.oy-L.u[1]*L.sc);g.drawImage(B.cv,-B.pad/B.k,-B.pad/B.k,B.W2/B.k,B.H2/B.k)}
+async function recordVideo(c,L,mime,bps,say){const st=c.captureStream(0),tr=st.getVideoTracks()[0],rec=new MediaRecorder(st,{mimeType:mime,videoBitsPerSecond:bps}),ch=[];rec.ondataavailable=e=>e.data.size&&ch.push(e.data);const done=new Promise(r=>rec.onstop=r);
+A.sim=newSim();rec.start();const t0=performance.now();
+for(let i=0;i<L.n;i++){poseAt(L.t0+i/L.fps);skin(S.bind);paint(c,L);tr.requestFrame&&tr.requestFrame();say("Recording "+(i+1)+" / "+L.n);await new Promise(r=>setTimeout(r,Math.max(0,t0+(i+1)*1000/L.fps-performance.now())))}
+await new Promise(r=>setTimeout(r,150));rec.stop();await done;return new Blob(ch,{type:mime})}
+async function alphaSurvived(blob){try{const v=document.createElement("video");v.muted=true;v.src=URL.createObjectURL(blob);await new Promise((ok,no)=>{v.onloadeddata=ok;v.onerror=no;setTimeout(no,8000)});
+v.currentTime=Math.min(.2,(v.duration||1)/2);await new Promise(r=>{v.onseeked=r;setTimeout(r,2000)});const c=document.createElement("canvas");c.width=c.height=8;const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(v,0,0,8,8);return g.getImageData(0,0,1,1).data[3]<20}catch(e){return false}}
+function poseAt(t){const s=A.sim;if(t<s.t-1e-6)A.sim=newSim();while(A.sim.t+1/30<=t+1e-9){A.sim.t+=1/30;simStep(A.sim.t)}applyPose(blend(t));S.off.x=A.sim.off}
+let busy=false;
+async function exportCore(prev){if(busy)return;busy=true;const say=t=>{$("#xprog").textContent=t},P=getX();
+try{const fps=Math.max(1,Math.min(60,+P.xfps||24)),t0=Math.max(0,+P.xt0||0),t1=Math.max(t0+1/fps,+P.xt1||A.T),n=Math.max(1,Math.round((t1-t0)*fps)),fmt=P.xfmt,tr=P.xtr&&fmt!=="mp4",name=(P.xname||"animation").replace(/[^\w.-]+/g,"_");
+if(n>600)throw new Error("That is "+n+" frames. Please export 600 frames or fewer (shorten the range or lower the frame rate).");
+say("Preparing…");stopAnim();A.sim=null;
+if(!S.bind||S.bind.ids.join()!==S.bones.map(b=>b.id).join()||(P.xhq&&S.bind.cap<1024&&S.img&&Math.max(S.img.width,S.img.height)>S.bind.cap)){bind(P.xhq?1024:512)}
+if(!capRest())throw new Error(A.msg);A.quiet=true;
+let u=null;A.sim=newSim();for(let i=0;i<n;i++){poseAt(t0+i/fps);skin(S.bind);const b=bbox(S.bind);if(b)u=u?[Math.min(u[0],b[0]),Math.min(u[1],b[1]),Math.max(u[2],b[2]),Math.max(u[3],b[3])]:b;if(i%20==0){say("Measuring the character’s bounds… "+i+" / "+n);await new Promise(r=>setTimeout(r))}}
+if(!u)throw new Error("The character has no visible pixels.");
+const bw=u[2]-u[0],bh=u[3]-u[1],m=+P.xpad||0;let W=Math.round(+P.xw),H=Math.round(+P.xh),sc,ox,oy;
+if(P.xmode==="tight"){sc=(+P.xscale||100)/100;W=Math.ceil(bw*sc+2*m);H=Math.ceil(bh*sc+2*m);ox=m;oy=m}else{sc=Math.min((W-2*m)/bw,(H-2*m)/bh);ox=(W-bw*sc)/2;oy=(H-bh*sc)/2}
+if(W>4096||H>4096)throw new Error("The output would be "+W+"×"+H+"; the maximum is 4096.");
+const L={u,sc,ox,oy,tr,bg:P.xbg,img:XBG,n,fps,t0},c=document.createElement("canvas");c.width=W;c.height=H;let blob,file,extra="";
+const cx2=c.getContext("2d",{willReadFrequently:true});
+if(prev){poseAt(t0);skin(S.bind);paint(c,L);const pc=$("#xprev");pc.style.display="block";pc.width=Math.min(W,340);pc.height=Math.max(1,Math.round(pc.width*H/W));const g=pc.getContext("2d");g.clearRect(0,0,pc.width,pc.height);g.drawImage(c,0,0,pc.width,pc.height);A.quiet=false;stopAnim();say("Preview of the first frame ("+W+"×"+H+"). This is exactly what is exported: only the character.");busy=false;return}
+if(fmt==="png"||fmt==="gif"){const files=[],fr=[];A.sim=newSim();
+for(let i=0;i<n;i++){poseAt(t0+i/fps);skin(S.bind);paint(c,L);
+if(fmt==="png"){const b=await new Promise(r=>c.toBlob(r,"image/png"));files.push({name:name+"_"+String(i+1).padStart(4,"0")+".png",data:new Uint8Array(await b.arrayBuffer())})}else fr.push(gidx(cx2.getImageData(0,0,W,H).data));
+if(i%4==0){say((fmt==="png"?"Rendering frame ":"Rendering frame ")+(i+1)+" / "+n);await new Promise(r=>setTimeout(r))}}
+if(fmt==="png"){const en=new TextEncoder(),pat=name+"_%04d.png";
+files.push({name:"manifest.json",data:en.encode(JSON.stringify({format:"riglab-frames",version:1,frameCount:n,fps,durationSeconds:+(n/fps).toFixed(4),width:W,height:H,loop:true,alpha:true,colour:"RGBA 8-bit, straight (non-premultiplied) alpha",framePattern:pat,source:{startSeconds:t0,endSeconds:t1},framing:P.xmode,note:"Every frame uses one fixed transform so the character does not jump between frames."},null,1))});
+files.push({name:"README.txt",data:en.encode(`RigLab transparent frame sequence\n${n} frames, ${W}x${H}, ${fps} fps. Import as an image sequence at ${fps} fps.\n\nProRes 4444 with alpha (.mov), for Procreate Dreams, Final Cut, Premiere, After Effects:\n  ffmpeg -framerate ${fps} -i ${pat} -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le ${name}.mov\n\nWebM VP9 with alpha:\n  ffmpeg -framerate ${fps} -i ${pat} -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 ${name}.webm\n\nMP4 cannot hold transparency. Put a background behind the frames first.\n`)});
+blob=zip(files);file=name+"_frames.zip"}else{blob=gifBlob(fr,W,H,fps,P.xloop);file=name+".gif";extra=" GIF transparency is on/off only."}}
+else{const mime=fmt==="webm"?"video/webm;codecs=vp9":mp4m();if(!mime||(fmt==="webm"&&!vp9()))throw new Error(fmt==="webm"?"This browser cannot record VP9 WebM.":"This browser cannot record H.264 MP4.");
+blob=await recordVideo(c,L,mime,(+P.xq||8)*1e6,say);
+if(fmt==="webm"&&tr){say("Checking that transparency survived…");if(!await alphaSurvived(blob))throw new Error("The recorded WebM did not keep its transparency in this browser, so it was NOT saved (it would have had a solid background). Export a PNG sequence instead; its README has an ffmpeg command for WebM or ProRes 4444 with alpha.");extra=" Transparency verified."}
+file=name+(fmt==="webm"?".webm":".mp4")}
+A.quiet=false;stopAnim();const r=await saveBlob(file,blob);say(file+" "+r+" ("+W+"×"+H+", "+n+" frames, "+(blob.size/1048576).toFixed(1)+" MB)."+extra);X.last={file,blob,W,H,n,fps}}
+catch(e){A.quiet=false;if(A.rest)stopAnim();say("Export stopped: "+e.message)}
+busy=false}
+async function runExport(prev){if(busy)return;const was=S.showRig;S.showRig=false;$("#showRig").checked=false;try{await exportCore(prev===true)}finally{S.showRig=was;$("#showRig").checked=was;draw()}}
+$("#xgo").onclick=()=>runExport();$("#xprevb").onclick=()=>runExport(true);
+
+/* ---------- project files ---------- */
+function projectJSON(){stopAnim();return JSON.stringify({format:"riglab-project",version:2,saved:new Date().toISOString(),
+image:S.img?{name:S.name,width:S.img.width,height:S.img.height,data:S.img.src}:null,bones:S.bones,counter:S.n,landmarks:S.lm,bound:!!S.bind,
+animation:{steps:A.steps,loop:$c("aloop"),follow:S.follow,speed:+$v("asp"),intensity:+$v("aint"),dir:$v("adir")},export:getX(),editor:{bg:bgSel.value,color:bgCol.value}})}
+async function openProject(txt){try{const o=JSON.parse(txt);if(o.format!=="riglab-project"||!Array.isArray(o.bones))throw new Error("format");
+stopAnim();if(o.image){const im=new Image();im.src=o.image.data;await im.decode();S.img=im;S.name=o.image.name}
+S.bones=o.bones;S.n=o.counter||1+S.bones.length;S.lm=o.landmarks||null;S.sel=null;S.bind=null;S.undo=[];S.redo=[];S.showLm=false;$("#showLm").checked=false;
+const a=o.animation||{};A.steps=a.steps||[];$("#aloop").checked=a.loop!==false;S.follow=a.follow!==false;$("#afol").checked=S.follow;$("#asp").value=a.speed||100;$("#aint").value=a.intensity||100;$("#adir").value=a.dir||"1";
+setX(o.export);if(o.editor){bgSel.value=o.editor.bg;bgCol.value=o.editor.color}applyBg();fit();
+if(o.bound&&S.bones.length)bind();updateSeq();MSG="Project opened: "+S.bones.length+" bones, "+A.steps.length+" animation step(s).";ui()}
+catch(e){MSG="That file could not be opened as a RigLab project.";ui()}}
+$("#savep").onclick=async()=>{const r=await saveBlob((S.name||"character").replace(/\.\w+$/,"")+".riglab.json",new Blob([projectJSON()],{type:"application/json"}));MSG="Project "+r+".";ui()};
+$("#openp").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(openProject);e.target.value=""};
+applyBg();
+
+/* ---------- import: remove a plain background, then find the body and build + attach the rig ---------- */
+function opaqueShare(im){const c=document.createElement("canvas"),k=Math.min(1,200/Math.max(im.width,im.height));c.width=Math.max(1,Math.round(im.width*k));c.height=Math.max(1,Math.round(im.height*k));const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(im,0,0,c.width,c.height);const d=g.getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4)if(d[i]>200)n++;return n/(d.length/4)}
+function imgFrom(c){return new Promise((ok,no)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=no;im.src=c.toDataURL("image/png")})}
+async function removeBg(){const im=S.img;if(!im)return"none";const w=im.width,h=im.height,c=document.createElement("canvas");c.width=w;c.height=h;const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(im,0,0);const id=g.getImageData(0,0,w,h),d=id.data;
+let r=0,gg=0,b=0,n=0;const edge=(x,y)=>{const i=(y*w+x)*4;r+=d[i];gg+=d[i+1];b+=d[i+2];n++};for(let x=0;x<w;x++){edge(x,0);edge(x,h-1)}for(let y=1;y<h-1;y++){edge(0,y);edge(w-1,y)}r/=n;gg/=n;b/=n;
+const dist=i=>Math.hypot(d[i]-r,d[i+1]-gg,d[i+2]-b);let spread=0;for(let x=0;x<w;x+=Math.max(1,w>>5)){spread=Math.max(spread,dist(x*4),dist(((h-1)*w+x)*4))}
+if(spread>70)return"busy";
+const tol=48,seen=new Uint8Array(w*h),st=[];const push=(x,y)=>{if(x<0||y<0||x>=w||y>=h)return;const p=y*w+x;if(seen[p]||dist(p*4)>tol)return;seen[p]=1;st.push(p)};
+for(let x=0;x<w;x++){push(x,0);push(x,h-1)}for(let y=0;y<h;y++){push(0,y);push(w-1,y)}
+while(st.length){const p=st.pop(),x=p%w,y=(p/w)|0;push(x+1,y);push(x-1,y);push(x,y+1);push(x,y-1)}
+let rem=0;for(let p=0;p<w*h;p++)if(seen[p]){d[p*4+3]=0;rem++}
+for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const p=y*w+x;if(seen[p])continue;if(seen[p-1]||seen[p+1]||seen[p-w]||seen[p+w]){const q=dist(p*4);if(q<tol*2)d[p*4+3]=Math.round(Math.min(255,90+165*q/(tol*2)))}}
+if(rem<.04*w*h||rem>.96*w*h)return"unclear";
+g.putImageData(id,0,0);S.img=await imgFrom(c);return"ok"}
+async function autoRig(){
+let note="";
+if(opaqueShare(S.img)>.97){const r=await removeBg();
+if(r==="ok"){note="Removed the plain background. ";S.bind=null;fit()}
+else{MSG="This image has a solid background that could not be removed automatically ("+(r==="busy"?"the background is not one plain colour":"no clear character found")+"). Use a PNG with a transparent background, or remove the background in another app, then import it again.";ui();return}}
+detect();if(!S.lm){return}
+gen();S.showLm=true;$("#showLm").checked=true;
+MSG=note+"Imported, rigged and attached: the picture now follows the bones. Check the yellow dots; if one is wrong use 2 Edit landmarks, then 3 Generate bones again.";ui()}
+$("#rmbg").onclick=async()=>{if(!S.img){MSG="Import an image first.";ui();return}const r=await removeBg();S.bind=null;S.dirty=S.bones.length>0;MSG=r==="ok"?"Background removed. Now choose 1 Detect landmarks (or leave Auto-rig on when importing).":"Could not remove the background: "+(r==="busy"?"it is not one plain colour.":"no clear character edge found.");fit();ui()};
+
+/* ---------- toolbar and keys ---------- */
+document.querySelectorAll("[data-tool]").forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+$("#del").onclick=delSel;$("#undo").onclick=()=>restore(S.undo,S.redo);$("#redo").onclick=()=>restore(S.redo,S.undo);$("#fit").onclick=fit;
+$("#showImg").onchange=e=>{S.showImg=e.target.checked;draw()};$("#alpha").oninput=e=>{S.alpha=e.target.value/100;draw()};
+addEventListener("keydown",e=>{const tg=e.target;if(tg.tagName==="TEXTAREA"||tg.tagName==="SELECT"||(tg.tagName==="INPUT"&&!["checkbox","range","button","file"].includes(tg.type)))return;
+if(e.code==="Space"){space=true;e.preventDefault();return}
+const k=e.key.toLowerCase();
+if((e.ctrlKey||e.metaKey)&&k==="z"){e.preventDefault();restore(e.shiftKey?S.redo:S.undo,e.shiftKey?S.undo:S.redo)}
+else if((e.ctrlKey||e.metaKey)&&k==="y"){e.preventDefault();restore(S.redo,S.undo)}
+else if(k==="v")setTool("select");else if(k==="b")setTool("add");else if(k==="h")setTool("pan");
+else if(k==="x"||k==="delete"||k==="backspace")delSel()});
+addEventListener("keyup",e=>{if(e.code==="Space")space=false});
+addEventListener("resize",resize);
+resize();fit();ui();
+</script>
+</body></html>
